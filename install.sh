@@ -191,7 +191,9 @@ save_env() {
     echo "TCP_GUEST_PORT=${TCP_GUEST_PORT:-22}" >> .vps_env
 }
 
-# 步骤 3：弹出链接并执行主启动命令
+# ==========================================
+# 🚀 启动虚拟机（含 sshx 永久日志）
+# ==========================================
 boot_qemu() {
     if [ -f ".vps_env" ]; then
         source .vps_env
@@ -207,15 +209,21 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    # ========== ★ sshx.io 隧道启动与链接提取 ★ ==========
-    # 创建临时文件，后台运行隧道，将输出重定向到该文件
-    sshx_log=$(mktemp)
-    curl -sSf https://sshx.io/get | sh -s run > "$sshx_log" 2>&1 &
+    # ========== ★ sshx.io 隧道启动与链接提取（永久日志） ★ ==========
+    SSHX_LOG_FILE="/var/log/sshx.log"
+    $SUDO_CMD mkdir -p "$(dirname "$SSHX_LOG_FILE")" 2>/dev/null
+    # 尝试创建日志文件；若 /var/log 不可写则回退到 /tmp
+    if ! $SUDO_CMD touch "$SSHX_LOG_FILE" 2>/dev/null; then
+        SSHX_LOG_FILE="/tmp/sshx.log"
+        touch "$SSHX_LOG_FILE" 2>/dev/null || { echo -e "${RED}无法创建日志文件${NC}"; exit 1; }
+    fi
+    # 后台启动隧道，输出重定向到固定日志文件
+    curl -sSf https://sshx.io/get | sh -s run > "$SSHX_LOG_FILE" 2>&1 &
     
     # 等待 5 秒，让隧道完成初始化并输出 URL
     sleep 5
     # 从日志中提取公网链接
-    SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
+    SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$SSHX_LOG_FILE" | head -n 1)
     # ==================================================
 
     clear
