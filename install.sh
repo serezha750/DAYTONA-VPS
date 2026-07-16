@@ -216,7 +216,6 @@ boot_qemu() {
     sleep 5
     # 从日志中提取公网链接
     SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
-    rm -f "$sshx_log"
     # ==================================================
 
     clear
