@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 清屏，让仪表盘更清爽
-clear
+# clear
 
 # ==========================================
 # 🌟 高级颜色代码与特效
@@ -191,9 +191,9 @@ save_env() {
     echo "TCP_GUEST_PORT=${TCP_GUEST_PORT:-22}" >> .vps_env
 }
 
-# ==========================================
-# 🚀 启动虚拟机（含 sshx 永久日志）
-# ==========================================
+# =========================================================================
+# 步骤 3：启动虚拟机（修复版：完整保存 sshx 日志 + 动态等待链接）
+# =========================================================================
 boot_qemu() {
     if [ -f ".vps_env" ]; then
         source .vps_env
@@ -209,22 +209,25 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    # ========== ★ sshx.io 隧道启动与链接提取（永久日志） ★ ==========
-    SSHX_LOG_FILE="/var/log/sshx.log"
-    $SUDO_CMD mkdir -p "$(dirname "$SSHX_LOG_FILE")" 2>/dev/null
-    # 尝试创建日志文件；若 /var/log 不可写则回退到 /tmp
-    if ! $SUDO_CMD touch "$SSHX_LOG_FILE" 2>/dev/null; then
-        SSHX_LOG_FILE="/tmp/sshx.log"
-        touch "$SSHX_LOG_FILE" 2>/dev/null || { echo -e "${RED}无法创建日志文件${NC}"; exit 1; }
-    fi
-    # 后台启动隧道，输出重定向到固定日志文件
-    curl -sSf https://sshx.io/get | sh -s run > "$SSHX_LOG_FILE" 2>&1 &
+    # ========== ★ sshx.io 隧道启动与链接提取（修复版）★ ==========
+    # [FIX] 使用固定日志文件，便于保存和查看
+    SSHX_LOG="/tmp/sshx.log"
+    # 清空旧日志
+    > "$SSHX_LOG"
     
-    # 等待 5 秒，让隧道完成初始化并输出 URL
-    sleep 5
-    # 从日志中提取公网链接
-    SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$SSHX_LOG_FILE" | head -n 1)
-    # ==================================================
+    # [FIX] 将整个命令组的输出（包括 curl 的进度和错误）完整重定向到日志
+    (curl -sSf https://sshx.io/get | sh -s run) > "$SSHX_LOG" 2>&1 &
+    
+    # [FIX] 动态等待链接出现，最多等待 30 秒
+    SSHX_URL=""
+    for i in {1..30}; do
+        SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$SSHX_LOG" | head -n 1)
+        if [ -n "$SSHX_URL" ]; then
+            break
+        fi
+        sleep 1
+    done
+    # ==============================================================
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
@@ -242,6 +245,8 @@ boot_qemu() {
     else
         echo -e "${RED}⚠️ 隧道代理加载较慢，本地网络端口已在监听。${NC}"
     fi
+    # [FIX] 提示日志保存位置
+    echo -e "${YELLOW}📄 隧道完整日志已保存至：$SSHX_LOG${NC}"
     echo -e "${RED}----------------------------------------------------------${NC}"
     echo -e "${WHITE}👉 本地连接命令 ：ssh ${USER_NAME:-ubuntu}@localhost -p ${TCP_HOST_PORT}${NC}"
     echo -e "${GREEN}==========================================================${NC}"
@@ -271,10 +276,12 @@ restart_vps() {
     fi
 }
 
-# 清理流程
+# 清理流程（增加删除 sshx 日志）
 clean_vps() {
     echo -e "${RED}⚠️ 正在清除系统存储组件和配置...${NC}"
     $SUDO_CMD rm -rf user-data seed.img /home/daytona/ubuntu22.qcow2 .vps_env
+    # [FIX] 清理时一并删除 sshx 日志
+    rm -f /tmp/sshx.log
     pkill sshx > /dev/null 2>&1
     pkill sh > /dev/null 2>&1
     sleep 1
